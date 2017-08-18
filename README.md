@@ -2,6 +2,8 @@
 jquery 源码分析
 
 目前已加注释的有
-jquery.Callbacks
+$.Callbacks
 
-jquery.Deferred-------------------有点难，严重依赖jquery.Callbacks
+$.Deferred-------------------有点难，严重依赖$.Callbacks
+
+$.when-----------------------依赖$.Deferred
