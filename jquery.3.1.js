@@ -3078,7 +3078,7 @@
             return jQuery.makeArray(selector, this);
         };
 
-    // Give the init function the jQuery prototype for later instantiation
+    // Give the init function the jQuery prototype for later instantiation(实例化)
     init.prototype = jQuery.fn;
 
     // Initialize central reference
@@ -3524,6 +3524,7 @@
             // Check for promise aspect first to privilege synchronous behavior
             if (value && jQuery.isFunction((method = value.promise))) {
                 //队列里加入resolve，即updateFunc(i)
+                //给对象绑定done、fail方法
                 method.call(value).done(resolve).fail(reject);
 
                 // Other thenables
@@ -3551,11 +3552,12 @@
     }
 
     // jQuery. Deferred主要处理：
-    //     显而易见Deferred是个工厂类，返回的是内部构建的deferred对象
+    //     显而易见Deferred是个(工厂类)，返回的是内部构建的deferred对象
     //     tuples 创建三个$.Callbacks对象，分别表示成功，失败，处理中三种状态
     //     创建了一个promise对象，具有state、always、pipe、then、promise方法
     //     扩展primise对象生成最终的Deferred对象，返回该对象
     //     primise对象就是一个受限对象，只读
+    //     设计逻辑也确实很复杂，需要思维跳转很活跃 ----------------哎
     jQuery.extend({
 
         Deferred: function (func) {
@@ -3579,7 +3581,7 @@
                         return state;
                     },
                     always: function () {
-                        // always注册了两个事件，成功和失败后总会执行
+                        // always注册了两个事件，成功和失败后总会执行，返回的是原有deferred，和then的区别
                         deferred.done(arguments).fail(arguments);
                         return this;
                     },
@@ -3620,11 +3622,18 @@
                         }).promise(); //多数return promise
                     },
                     // then 允许一次处理三种注册，三种状态执行完总会运行
+                    // 我们可以把每一次的then操作，当做是创建一个新的deferred对象，那么每一个对象都够保存自己的状态与各自的处理方法。通过一个办法把所有的对象操作都串联起来，这就是then或者pipe管道设计的核心思路了。
+                    //即如果存在then的话，队列是酱紫的:4个
+                    //fireWidth
+                    //disabled
+                    //lock
+                    //fire---->fireWidth：这个firewidth的list.length=1,即then 成功或失败或progress的回调函数（只能有一个）
+                    //*******无数个done的回调函数。。。。
                     then: function (onFulfilled, onRejected, onProgress) {
                         var maxDepth = 0;
 
                         function resolve(depth, deferred, handler, special) {
-                            // 必须return 一个function给add 添加
+                            // 必须return 一个function给add 添加，即tuple[3].fire 调用的匿名函数，成功/失败/progress,tuple[3] 里面的list队列里只有一个队列
                             return function () {
                                 var that = this,
                                     args = arguments,
@@ -3637,7 +3646,7 @@
                                         if (depth < maxDepth) {
                                             return;
                                         }
-
+                                        //执行then回调，保存then的执行结果，作为后面then的入参
                                         returned = handler.apply(that, args);
 
                                         // Support: Promises/A+ section 2.3.1
@@ -3661,7 +3670,8 @@
 
                                         // Handle a returned thenable
                                         if (jQuery.isFunction(then)) {
-
+                                            // 返回ajax.done(deferred.resolve)
+                                            // .fail(deferred.reject)
                                             // Special processors (notify) just wait for resolution
                                             if (special) {
                                                 then.call(
@@ -3675,7 +3685,9 @@
 
                                                 // ...and disregard older resolution values
                                                 maxDepth++;
-
+                                                // 返回ajax.done(deferred.resolve)
+                                                // .fail(deferred.reject)
+                                                // .progress(deferred.notify);
                                                 then.call(
                                                     returned,
                                                     resolve(maxDepth, deferred, Identity, special),
@@ -3697,7 +3709,7 @@
 
                                             // Process the value(s)
                                             // Default process is resolve
-                                            //一环套一环，最后还是执行list.fireWith，至少执行了3遍。。。
+                                            //一环套一环，最后还是执行list.fireWith，把之前执行过的又执行了遍，重置参数、、、、至少执行了3遍。。。
                                             (special || deferred.resolveWith)(that, args);
                                         }
                                     },
@@ -3752,7 +3764,8 @@
                                 }
                             };
                         }
-
+                        //返回一个新的包含promise的Deferred（上一个Deferred）
+                        //newDefer其实就是内部的deferre对象,见L3864
                         return jQuery.Deferred(function (newDefer) {
 
                             // progress_handlers.add( ... )
@@ -3790,7 +3803,9 @@
                             );
                         }).promise();
                     },
-
+                    // 2：可以生成一个受限的deferred对象，
+                    //   不在拥有resolve(With), reject(With), notify(With)这些能改变deferred对象状态并且执行callbacklist的方法了
+                    //   换句话只能读，不能改变了
                     // Get a promise for this deferred
                     // If obj is provided, the promise aspect is added to the object（obj中原有方法可以正常调用）
                     promise: function (obj) {
@@ -3823,10 +3838,11 @@
                         // rejected_callbacks.disable
                         // fulfilled_callbacks.disable
                         tuples[3 - i][2].disable,
-                        //清除progress 记忆,不在执行progress里面的内容
+                        //lock processList保持其状态
                         // progress_callbacks.lock
                         tuples[0][2].lock
                     );
+                    //后面执行done/fail/then
                 }
                 // 执行then
                 // progress_handlers.fire
@@ -3889,6 +3905,7 @@
                         resolveValues[i] = arguments.length > 1 ? slice.call(arguments) : value;
                         // 自减完在计算。。不能再浏览器端选中看结果，已经执行了一遍，数值就不对了。。。
                         // 全部（每个异步resolve）执行完在执行统一的resolve
+                        // 判断异步对象执行的次数来决定是不是已经完成了所有的处理或者是失败处理
                         if (!(--remaining)) {
                             master.resolveWith(resolveContexts, resolveValues);
                         }
@@ -3908,6 +3925,7 @@
             }
 
             // Multiple arguments are aggregated like Promise.all array elements
+            //i-- 为true,遍历每个异步对象给每一个对象绑定done、fail、progess方法
             while (i--) {
                 adoptValue(resolveValues[i], updateFunc(i), master.reject);
             }
