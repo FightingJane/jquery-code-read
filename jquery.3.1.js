@@ -637,13 +637,14 @@
                 rtrim = new RegExp("^" + whitespace + "+|((?:^|[^\\\\])(?:\\\\.)*)" + whitespace + "+$", "g"),
 
                 rcomma = new RegExp("^" + whitespace + "*," + whitespace + "*"),
+                // 匹配连接符,>+~前后的空格，例如 div p、div + p、 div > p、 div ~ p
                 rcombinators = new RegExp("^" + whitespace + "*([>+~]|" + whitespace + ")" + whitespace + "*"),
 
                 rattributeQuotes = new RegExp("=" + whitespace + "*([^\\]'\"]*?)" + whitespace + "*\\]", "g"),
 
                 rpseudo = new RegExp(pseudos),
                 ridentifier = new RegExp("^" + identifier + "$"),
-
+                // 用于L2243循环匹配
                 matchExpr = {
                     "ID": new RegExp("^#(" + identifier + ")"),
                     "CLASS": new RegExp("^\\.(" + identifier + ")"),
@@ -667,7 +668,7 @@
 
                 // Easily-parseable/retrievable ID or TAG or CLASS selectors
                 rquickExpr = /^(?:#([\w-]+)|(\w+)|\.([\w-]+))$/,
-
+                //近邻、兄弟
                 rsibling = /[+~]/,
 
                 // CSS escapes
@@ -781,6 +782,7 @@
 
                         // If the selector is sufficiently simple, try using a "get*By*" DOM method
                         // (excepting DocumentFragment context, where the methods don't exist)
+                        //DocumentFragment:nodeType 11,代表轻量级的 Document 对象，能够容纳文档的某个部分,Element, ProcessingInstruction, Comment, Text, CDATASection, EntityReference
                         if (nodeType !== 11 && (match = rquickExpr.exec(selector))) {
 
                             // ID selector
@@ -825,7 +827,7 @@
                             } else if ((m = match[3]) && support.getElementsByClassName &&
                                 context.getElementsByClassName) {
 
-                                push.apply(results, context.getElementsByClassName(m));
+                                push.apply(results, context.getElementsByClassNamegetElementsByClassName(m));
                                 return results;
                             }
                         }
@@ -834,30 +836,34 @@
                         if (support.qsa &&
                             !compilerCache[selector + " "] &&
                             (!rbuggyQSA || !rbuggyQSA.test(selector))) {
-
+                            // nodeType:9-->代表整个文档（DOM 树的根节点）--全文当查找
+                            // nodeType:1-->代表元素节点，有上下文查找
+                            //$(selecor)这种才走第一个分支，$(selecor,$('div'))这种限制范围的走第二个分支
                             if (nodeType !== 1) {
                                 newContext = context;
                                 newSelector = selector;
 
                                 // qSA looks outside Element context, which is not what we want
                                 // Thanks to Andrew Dupont for this workaround technique
-                                // Support: IE <=8
+                                // Support: IE <=8！！！！（其他都不适用，也不会走到这步;事实是$(selecor,$('div')) 这样的选择器可以走到这步）
                                 // Exclude object elements
+                                //在上下文调用的context元素上指定一个id，通过这个限制范围，排除element本身
                             } else if (context.nodeName.toLowerCase() !== "object") {
 
-                                // Capture the context ID, setting it first if necessary
+                                // Capture the context ID, setting it first if necessary（捕捉上下文ID，有就赋值，没有就赋值expando）
                                 if ((nid = context.getAttribute("id"))) {
                                     nid = nid.replace(rcssescape, fcssescape);
                                 } else {
                                     context.setAttribute("id", (nid = expando));
                                 }
 
-                                // Prefix every selector in the list
+                                // Prefix every selector in the list 重新拼接，每个list加前缀ID，使之符合高级API的解析规则，便于用querySelectAll
                                 groups = tokenize(selector);
                                 i = groups.length;
                                 while (i--) {
                                     groups[i] = "#" + nid + " " + toSelector(groups[i]);
                                 }
+                                //多个选择器合并
                                 newSelector = groups.join(",");
 
                                 // Expand context for sibling selectors
@@ -867,11 +873,14 @@
 
                             if (newSelector) {
                                 try {
+                                    // 支持高级API 直接调用querySelectorAll,已经可以支持css3大部分的选择器和逗号分隔
+                                    // 提供一个上下文范围newContext，但是浏览器无视了这个上下文，默认还是类似document的处理document.querySelectorAll
                                     push.apply(results,
-                                        newContext.querySelectorAll(newSelector)
+                                        newContext.querySelectorAll(newSelector) //浏览器都支持这么复杂的了直接查找：'div.aaron input[name=ttt],div>p'
                                     );
                                     return results;
                                 } catch (qsaError) {} finally {
+                                    //id总会删除的
                                     if (nid === expando) {
                                         context.removeAttribute("id");
                                     }
@@ -887,15 +896,16 @@
 
             /**
              * Create key-value caches of limited size
-             * @returns {function(string, object)} Returns the Object data after storing it on itself with
+             * @returns {function(string, object)} Returns the Object data after storing it on itself with  存储于自身 cache[key + " "]
              *  property name the (space-suffixed) string and (if the cache is larger than Expr.cacheLength)
              *  deleting the oldest entry
+             * 又是闭包、、
              */
             function createCache() {
                 var keys = [];
 
                 function cache(key, value) {
-                    // Use (key + " ") to avoid collision with native prototype properties (see Issue #157)
+                    // Use (key + " ") to avoid collision（冲突） with native prototype properties (see Issue #157)
                     if (keys.push(key + " ") > Expr.cacheLength) {
                         // Only keep the most recent entries
                         delete cache[keys.shift()];
@@ -1226,6 +1236,7 @@
                 Expr.find["TAG"] = support.getElementsByTagName ?
                     function (tag, context) {
                         if (typeof context.getElementsByTagName !== "undefined") {
+                            relative
                             return context.getElementsByTagName(tag);
 
                             // DocumentFragment nodes don't have gEBTN
@@ -1662,20 +1673,22 @@
 
                 find: {},
 
+                // 记录跟选择器相关的属性以及操作
+                //first: 标识两个节点的“紧密”程度,例如父子关系和临近兄弟关系就是紧密的
                 relative: {
                     ">": {
-                        dir: "parentNode",
+                        dir: "parentNode", // 父亲和儿子
                         first: true
                     },
                     " ": {
-                        dir: "parentNode"
+                        dir: "parentNode" // 祖宗和后代  
                     },
                     "+": {
-                        dir: "previousSibling",
+                        dir: "previousSibling", // 临近兄弟
                         first: true
                     },
                     "~": {
-                        dir: "previousSibling"
+                        dir: "previousSibling" // 普通兄弟
                     }
                 },
 
@@ -2193,7 +2206,7 @@
                 var matched, match, tokens, type,
                     soFar, groups, preFilters,
                     cached = tokenCache[selector + " "];
-
+                // 已经缓存，parseOnly未定义就不会继续缓存
                 if (cached) {
                     return parseOnly ? 0 : cached.slice(0);
                 }
@@ -2201,21 +2214,23 @@
                 soFar = selector;
                 groups = [];
                 preFilters = Expr.preFilter;
-
+                //循环取值，塞入tokens
+                // div.aaron input[name=ttt]
                 while (soFar) {
-
-                    // Comma and first run
+                    // 第一大块，分组关系
+                    // Comma and first run 遇到逗号(返回逗号和所在位置0)或第一次运行，清空或者重新赋值tokens
                     if (!matched || (match = rcomma.exec(soFar))) {
                         if (match) {
-                            // Don't consume trailing commas as valid
+                            // Don't consume trailing commas as valid 去除逗号，groups 塞入第二个值，继续匹配选择器
                             soFar = soFar.slice(match[0].length) || soFar;
                         }
+                        //tokens的变化就是groups的变化；tokens = [] 是一个表达式，要用括号包裹。。
                         groups.push((tokens = []));
                     }
 
                     matched = false;
-
-                    // Combinators
+                    //第二大块，层级关系
+                    // Combinators 连接符，例如空格
                     if ((match = rcombinators.exec(soFar))) {
                         matched = match.shift();
                         tokens.push({
@@ -2225,18 +2240,18 @@
                         });
                         soFar = soFar.slice(matched.length);
                     }
-
-                    // Filters
+                    //第三大块，选择器
+                    // Filters 
                     for (type in Expr.filter) {
                         if ((match = matchExpr[type].exec(soFar)) && (!preFilters[type] ||
-                                (match = preFilters[type](match)))) {
+                                (match = preFilters[type](match)))) { //属性、child和PSEUDO 的时候比较复杂，会调用preFilters处理
                             matched = match.shift();
                             tokens.push({
                                 value: matched,
                                 type: type,
                                 matches: match
                             });
-                            soFar = soFar.slice(matched.length);
+                            soFar = soFar.slice(matched.length); //把当前匹配的选择器去除，重新匹配
                         }
                     }
 
@@ -2255,7 +2270,7 @@
                     // Cache the tokens
                     tokenCache(selector, groups).slice(0);
             };
-
+            //拼接获取选择器selector
             function toSelector(tokens) {
                 var i = 0,
                     len = tokens.length,
@@ -2813,7 +2828,7 @@
         })(window);
 
 
-
+    //！！！重点，Sizzle 为立即执行函数，每次执行jQuery.find 都会执行一遍
     jQuery.find = Sizzle;
     jQuery.expr = Sizzle.selectors;
 
@@ -2974,15 +2989,16 @@
     var rootjQuery,
 
         // A simple way to check for HTML strings
-        // Prioritize #id over <tag> to avoid XSS via location.hash (#9521)
+        // Prioritize #id over <tag> to avoid XSS(跨站脚本攻击) via location.hash (#9521) 优先处理基于标签的id
         // Strict HTML recognition (#11290: must start with <)
         // Shortcut simple #id case for speed
+        //html string or #id
         rquickExpr = /^(?:\s*(<[\w\W]+>)[^>]*|#([\w-]+))$/,
 
         init = jQuery.fn.init = function (selector, context, root) {
             var match, elem;
 
-            // HANDLE: $(""), $(null), $(undefined), $(false)
+            // HANDLE: $(""), $(null), $(undefined), $(false) 增加程序的健壮性
             if (!selector) {
                 return this;
             }
